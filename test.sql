@@ -302,6 +302,7 @@ SET SERVEROUTPUT ON;
 BEGIN
     -- Teste de adição de sala com nome único
     -- add_theater_room( p_room_name VARCHAR2)
+    
     add_theater_room('Sala Principal 7');
 END;
 /
