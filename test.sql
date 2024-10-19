@@ -22,10 +22,11 @@ BEGIN
 
     -- Atualiza a capacidade da sala (incrementa o número de assentos)
     UPDATE TheaterRooms 
-    SET total_seats = total_seats + 1 
+    SET capacity = capacity + 1 
     WHERE room_id = p_room_id;
 
     DBMS_OUTPUT.PUT_LINE('Cadeira ' || p_seat_number || ' adicionada com sucesso à sala ' || p_room_id);
+    COMMIT;
 
 EXCEPTION
     WHEN DUP_VAL_ON_INDEX THEN
@@ -36,20 +37,18 @@ END add_seat;
 /
 
 
-
-
 -- 2. Procedimento para adicionar uma sala
-CREATE OR REPLACE PROCEDURE add_theater_room(p_room_name VARCHAR2) IS
-    v_room_id NUMBER;
+CREATE OR REPLACE PROCEDURE add_theater_room( p_room_name VARCHAR2) IS
 BEGIN
     -- Obtem o próximo valor da sequência para o ROOM_ID
     -- v_room_id := room_id_seq.NEXTVAL;
 
     -- Insere a nova sala
-    INSERT INTO theaterrooms ( room_name) VALUES ( p_room_name);
-    -- INSERT INTO theaterrooms (room_id, room_name, total_seats) VALUES (v_room_id, p_room_name, p_total_seats);
+    INSERT INTO theaterrooms (room_name) VALUES (p_room_name);
+    -- INSERT INTO theaterrooms (room_id, room_name, capacity) VALUES (v_room_id, p_room_name, p_capacity);
 
     DBMS_OUTPUT.PUT_LINE('Sala adicionada com sucesso: ' || p_room_name);
+    COMMIT;
 
 EXCEPTION
     WHEN DUP_VAL_ON_INDEX THEN
@@ -94,6 +93,7 @@ BEGIN
     VALUES (p_session_name, p_session_description, p_start_time, p_duration_in_hours, p_room_id, p_session_state);
     
     DBMS_OUTPUT.PUT_LINE('Sessão adicionada com sucesso: ' || p_session_name);
+    COMMIT;
 END;
 /
 
@@ -129,6 +129,7 @@ BEGIN
     VALUES (p_session_id, p_seat_category, p_price);
 
     DBMS_OUTPUT.PUT_LINE('Preço de ingresso adicionado com sucesso para a sessão ID: ' || p_session_id);
+    COMMIT;
 END;
 /
 
@@ -137,7 +138,8 @@ CREATE OR REPLACE PROCEDURE add_customer (
     p_customer_name IN VARCHAR2,
     p_customer_email IN VARCHAR2,
     p_balance IN DECIMAL
-) AS
+) IS
+    v_count NUMBER;
 BEGIN
     -- Validação para verificar se o nome do cliente não é nulo
     IF p_customer_name IS NULL THEN
@@ -149,12 +151,25 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20002, 'Erro: O email do cliente não pode ser nulo.');
     END IF;
 
-    -- Inserção do novo cliente
-    INSERT INTO Customers (customer_name, customer_email, balance)
-    VALUES (p_customer_name, p_customer_email, p_balance);
+    -- Verificar se o cliente com o email já existe
+    SELECT COUNT(*) INTO v_count FROM Customers WHERE customer_email = p_customer_email;
+    
+    IF v_count > 0 THEN
+        -- Se o email já existir, levantar um erro personalizado
+        RAISE_APPLICATION_ERROR(-20001, 'Erro: O cliente com o email ' || p_customer_email || ' já existe.');
+    ELSE
+        -- Inserção do novo cliente
+        INSERT INTO Customers (customer_name, customer_email, balance)
+        VALUES (p_customer_name, p_customer_email, p_balance);
 
-    DBMS_OUTPUT.PUT_LINE('Cliente adicionado com sucesso: ' || p_customer_name);
-END;
+        DBMS_OUTPUT.PUT_LINE('Cliente adicionado com sucesso: ' || p_customer_name);
+        COMMIT;
+    END IF;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Erro ao adicionar cliente: ' || SQLERRM);
+END add_customer;
 /
 
 
@@ -213,7 +228,12 @@ BEGIN
     VALUES (p_session_id, p_customer_id, p_seat_id, p_ticket_status);
 
     DBMS_OUTPUT.PUT_LINE('Ingresso adicionado com sucesso para a sessão ID: ' || p_session_id);
-END;
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Erro ao adicionar ingresso: ' || SQLERRM);
+    END;
 /
 
 
@@ -264,6 +284,11 @@ BEGIN
     VALUES (p_customer_id, p_ticket_id, p_transaction_type, p_transaction_amount, p_description);
 
     DBMS_OUTPUT.PUT_LINE('Transação adicionada com sucesso para o cliente ID: ' || p_customer_id);
+    COMMIT;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Erro ao adicionar transação: ' || SQLERRM);
 END;
 /
 
@@ -276,32 +301,23 @@ END;
 SET SERVEROUTPUT ON;
 BEGIN
     -- Teste de adição de sala com nome único
-    add_theater_room('Sala Principal 2');
-    DBMS_OUTPUT.PUT_LINE('Sala adicionada com sucesso!');
-
-    -- Teste de adição de sala com nome já existente
-    -- BEGIN
-    --     add_theater_room('Sala Principal', 150); -- Nome duplicado
-    -- EXCEPTION
-    --     WHEN OTHERS THEN
-    --         DBMS_OUTPUT.PUT_LINE('Erro ao adicionar sala: ' ||SQLERRM);
-    -- END;
+    -- add_theater_room( p_room_name VARCHAR2)
+    add_theater_room('Sala Principal 7');
 END;
 /
 
 -- Testando a adição de um assento
 BEGIN
     -- Teste de adição de assento na sala 1, categoria VIP
-    add_seat('VIP', '01', 1);
-    DBMS_OUTPUT.PUT_LINE('Assento adicionado com sucesso!');
+    -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER) 
+    add_seat('VIP', 'A2', 20240003);
+END;
+/
 
-    -- Teste de adição de assento em uma sala inexistente
-    BEGIN
-        add_seat('Standard', '02', 999); -- Sala inexistente
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar assento: ' ||SQLERRM);
-    END;
+-- Teste de adição de assento em uma sala inexistente
+BEGIN
+    -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER) 
+    add_seat('Standard', '02', 999); -- Sala inexistente
 END;
 /
 
@@ -309,79 +325,63 @@ END;
 -- Testando a adição de uma sessão
 BEGIN
     -- Teste de adição de sessão com sala válida
+    -- add_session (p_session_name IN VARCHAR2, p_session_description IN VARCHAR2, p_start_time IN TIMESTAMP, p_duration_in_hours IN NUMBER, p_room_id IN NUMBER, p_session_state IN VARCHAR2)
     add_session('Peça de Teatro', 'Uma peça emocionante', SYSTIMESTAMP, 2, 1, 'aberta');
-    DBMS_OUTPUT.PUT_LINE('Sessão adicionada com sucesso!');
 
-    -- Teste de adição de sessão em sala inexistente
-    BEGIN
-        add_session('Sessão Fantasma', 'Sessão em sala inexistente', SYSTIMESTAMP, 1, 999, 'aberta');
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar sessão: ' ||SQLERRM);
-    END;
 END;
 /
 
--- Testando a adição de um preço de ingresso
+-- Teste de adição de sessão em sala inexistente
 BEGIN
-    -- Teste de adição de preço de ingresso para sessão válida
+    add_session('Sessão Fantasma', 'Sessão em sala inexistente', SYSTIMESTAMP, 1, 999, 'aberta');
+END;
+/
+
+-- Teste de adição de preço de ingresso para sessão válida
+BEGIN
     add_ticket_price(1, 'VIP', 50.00);
-    DBMS_OUTPUT.PUT_LINE('Preço de ingresso adicionado com sucesso!');
-
-    -- Teste de adição de preço de ingresso para sessão inexistente
-    BEGIN
-        add_ticket_price(999, 'Standard', 30.00); -- Sessão inexistente
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar preço de ingresso: ' ||SQLERRM);
-    END;
 END;
 /
 
--- Testando a adição de um cliente
+-- Teste de adição de preço de ingresso para sessão inexistente
 BEGIN
-    -- Teste de adição de cliente com email único
+    add_ticket_price(999, 'Standard', 30.00); -- Sessão inexistente
+END;
+/
+
+-- Teste de adição de cliente com email único
+BEGIN
     add_customer('João Silva', 'joao.silva@example.com', 100.00);
-    DBMS_OUTPUT.PUT_LINE('Cliente adicionado com sucesso!');
-
-    -- Teste de adição de cliente com email duplicado
-    BEGIN
-        add_customer('Maria Santos', 'joao.silva@example.com', 50.00); -- Email duplicado
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar cliente: ' ||SQLERRM);
-    END;
 END;
 /
 
--- Testando a adição de um ingresso
+-- Teste de adição de cliente com email duplicado
 BEGIN
-    -- Teste de adição de ingresso com cliente e sessão válidos
+    add_customer('Maria Santos', 'joao.silva@example.com', 50.00); -- Email duplicado
+END;
+/
+
+-- Teste de adição de ingresso com cliente e sessão válidos
+BEGIN
     add_ticket(1, 1, 1, 'pendente');
-    DBMS_OUTPUT.PUT_LINE('Ingresso adicionado com sucesso!');
-
-    -- Teste de adição de ingresso com cliente inexistente
-    BEGIN
-        add_ticket(1, 999, 1, 'pendente'); -- Cliente inexistente
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar ingresso: ' ||SQLERRM);
-    END;
 END;
 /
 
--- Testando a adição de uma transação
+-- Teste de adição de ingresso com cliente inexistente
 BEGIN
-    -- Teste de adição de transação com cliente e ingresso válidos
-    add_transaction(1, 1, 'purchase', 50.00, 'Compra de ingresso');
-    DBMS_OUTPUT.PUT_LINE('Transação adicionada com sucesso!');
+    add_ticket(1, 999, 1, 'pendente'); -- Cliente inexistente
+END;
+/
 
-    -- Teste de adição de transação com ingresso inexistente
-    BEGIN
-        add_transaction(1, 999, 'refund', 50.00, 'Reembolso de ingresso'); -- Ingresso inexistente
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Erro ao adicionar transação: ' ||SQLERRM);
-    END;
+-- Teste de adição de transação com cliente e ingresso válidos
+BEGIN
+    add_transaction(1, 1, 'purchase', 50.00, 'Compra de ingresso');
+
+END;
+/
+
+-- Teste de adição de transação com ingresso inexistente
+BEGIN
+    add_transaction(1, 999, 'refund', 50.00, 'Reembolso de ingresso'); -- Ingresso inexistente
 END;
 /

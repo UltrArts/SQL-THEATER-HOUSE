@@ -16,10 +16,11 @@ CREATE TABLE Seats (
 CREATE TABLE TheaterRooms (
     room_id NUMBER PRIMARY KEY, -- Chave primária para a sala
     room_name VARCHAR2(100) UNIQUE NOT NULL, -- Nome da sala
-    total_seats NUMBER DEFAULT 0, -- Total de assentos na sala
+    capacity NUMBER DEFAULT 0, -- Total de assentos na sala
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 -- 3. Criação da tabela de Espectáculos/Sessões (Sessions)
 -- Sessões marcadas em horários específicos, associadas a uma sala.
@@ -313,7 +314,7 @@ BEGIN
     FROM Tickets t
     WHERE t.session_id = :NEW.session_id;
 
-    SELECT total_seats INTO room_capacity
+    SELECT capacity INTO room_capacity
     FROM TheaterRooms r, Sessions s
     WHERE s.room_id = r.room_id
     AND s.session_id = :NEW.session_id;
@@ -357,7 +358,7 @@ BEGIN
     FROM Tickets t
     WHERE t.session_id = :NEW.session_id;
 
-    SELECT total_seats INTO room_capacity
+    SELECT capacity INTO room_capacity
     FROM TheaterRooms r, Sessions s
     WHERE s.room_id = r.room_id
     AND s.session_id = :NEW.session_id;
@@ -457,7 +458,7 @@ BEGIN
     WHERE session_id = :NEW.session_id;
 
     -- Obtém a capacidade da sala associada à sessão
-    SELECT r.total_seats -- Ajustado para 'total_seats'
+    SELECT r.capacity -- Ajustado para 'capacity'
     INTO room_capacity
     FROM Sessions s
     JOIN TheaterRooms r ON s.room_id = r.room_id -- Ajustado para 'TheaterRooms'
