@@ -2,13 +2,15 @@
 -- Assentos serão fixos para todas as sessões, registrados uma só vez.
 CREATE TABLE Seats (
     seat_id NUMBER PRIMARY KEY, -- Chave primária para o assento
-    seat_category VARCHAR2(50) NOT NULL, -- Premium, VIP, Standard
-    seat_number VARCHAR2(10) NOT NULL UNIQUE, -- Número único para cada assento
+    seat_category VARCHAR2(50) CHECK (seat_category IN ('STANDARD', 'PREMIUM', 'VIP')) NOT NULL, -- Premium, VIP, Standard
+    seat_number VARCHAR2(10)  NOT NULL UNIQUE, -- Número único para cada assento
+    seat_row NUMBER, 
     room_id NUMBER NOT NULL,
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (room_id) REFERENCES TheaterRooms(room_id)
 );
+
 
 
 -- 2. Criação da tabela de Salas (TheaterRooms)
@@ -28,14 +30,15 @@ CREATE TABLE Sessions (
     session_id NUMBER PRIMARY KEY, -- Chave primária para a sessão
     session_name VARCHAR2(100) NOT NULL, -- Nome da sessão
     session_description VARCHAR2(255), -- Descrição da sessão
-    start_time TIMESTAMP NOT NULL, -- Hora de início da sessão
-    duration_in_hours NUMBER NOT NULL, -- Duração da sessão
+    session_date TIMESTAMP NOT NULL, -- Hora de início da sessão
+    duration_in_minutes NUMBER NOT NULL, -- Duração da sessão
     room_id NUMBER NOT NULL, -- ID da sala associada
     session_state VARCHAR2(50) CHECK (session_state IN ('aberta', 'fechada', 'cancelada', 'adiada', 'finalizada')), -- Estado da sessão
     FOREIGN KEY (room_id) REFERENCES TheaterRooms(room_id), -- Chave estrangeira para a sala
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- ALTER TABLE SESSIONS RENAME COLUMN session_date TO session_date;
 
 -- 4. Criação da tabela de Preços (TicketPrices)
 -- Diferentes preços para categorias de assentos por sessão.
@@ -61,7 +64,7 @@ CREATE TABLE Customers (
 );
 
 
-
+-- ALTER TABLE TICKETS ADD ( balance DECIMAL(10, 2) DEFAULT 0);
 -- 6. Criação da tabela de Ingressos (Tickets)
 -- Associações de clientes com sessões e assentos, para compra de ingressos.
 CREATE TABLE Tickets (
@@ -310,20 +313,23 @@ DECLARE
     total_tickets_sold NUMBER;
     room_capacity NUMBER;
 BEGIN
+    -- Conta quantos bilhetes já foram vendidos para a sessão
     SELECT COUNT(*) INTO total_tickets_sold
     FROM Tickets t
     WHERE t.session_id = :NEW.session_id;
 
-    SELECT capacity INTO room_capacity
-    FROM TheaterRooms r, Sessions s
-    WHERE s.room_id = r.room_id
-    AND s.session_id = :NEW.session_id;
+    -- Conta o número de cadeiras na sala associada à sessão
+    SELECT COUNT(*) INTO room_capacity
+    FROM Seats s
+    JOIN Sessions ses ON s.room_id = ses.room_id
+    WHERE ses.session_id = :NEW.session_id;
 
+    -- Verifica se a capacidade da sala foi excedida
     IF (total_tickets_sold + 1 > room_capacity) THEN
         RAISE_APPLICATION_ERROR(-20001, 'A capacidade da sala foi excedida.');
     END IF;
 END;
-/
+
 
 -- 12 Trigger para impedir que a capacidade da sala seja excedida.
 
@@ -371,27 +377,42 @@ BEGIN
 END;
 /
 
+DROP TRIGGER TRG_VALIDATE;
+
 -- 13  TRIGGER Para Validar de Horários: Implementar uma lógica que garanta o intervalo mínimo de 15 minutos entre as sessões
-CREATE OR REPLACE TRIGGER trg_validate_session_time
+CREATE OR REPLACE TRIGGER trg_validate_session
 BEFORE INSERT ON Sessions
 FOR EACH ROW
 DECLARE
-    overlapping_session_count INTEGER;
+  overlapping_session_count INTEGER;
+  room_exists NUMBER;
 BEGIN
-    -- Verifica se existe uma sessão que conflite com o horário desejado
-    SELECT COUNT(*)
-    INTO overlapping_session_count
-    FROM Sessions
-    WHERE room_id = :NEW.room_id
-      AND (
-            (session_start <= :NEW.session_end AND session_end >= :NEW.session_start)
-            OR
-            (session_start BETWEEN :NEW.session_start - INTERVAL '15' MINUTE AND :NEW.session_start + INTERVAL '15' MINUTE)
-      );
 
-    IF overlapping_session_count > 0 THEN
-        RAISE_APPLICATION_ERROR(-20001, 'Já existe uma sessão agendada na sala neste período. Intervalo mínimo de 15 minutos é obrigatório.');
-    END IF;
+-- Verifica se a data da sessão é válida (pelo menos 2 dias no futuro)
+  IF :NEW.session_date < SYSDATE + INTERVAL '2' DAY THEN
+    RAISE_APPLICATION_ERROR(-20002, 'A sessão deve ser agendada com pelo menos 2 dias de antecedência.');
+  END IF;
+
+  -- Verifica se a sala existe
+  SELECT COUNT(*)
+  INTO room_exists
+  FROM theaterrooms
+  WHERE room_id = :NEW.room_id;
+
+  IF room_exists = 0 THEN
+    RAISE_APPLICATION_ERROR(-20003, 'A sala especificada não existe.');
+  END IF;
+
+  SELECT COUNT(*)
+  INTO overlapping_session_count
+  FROM Sessions
+  WHERE room_id = :NEW.room_id
+    AND :NEW.session_date BETWEEN session_date AND session_date + duration_in_minutes * INTERVAL '1' MINUTE + INTERVAL '15' MINUTE;
+
+
+  IF overlapping_session_count > 0 THEN
+    RAISE_APPLICATION_ERROR(-20001, 'A nova sessão deve começar pelo menos 15 minutos após o término da sessão anterior.');
+  END IF;
 END;
 /
 
@@ -505,7 +526,6 @@ BEGIN
     INSERT INTO Transactions (customer_id, ticket_id, transaction_type)
     VALUES (p_customer_id, v_ticket_id, 'purchase');
 
-    COMMIT; -- Confirmar as alterações
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK; -- Reverter em caso de erro
@@ -526,7 +546,6 @@ BEGIN
     -- Atualizar status do ticket
     DELETE FROM Tickets WHERE ticket_id = p_ticket_id;
 
-    COMMIT; -- Confirmar as alterações
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK; -- Reverter em caso de erro
@@ -549,12 +568,117 @@ BEGIN
     SET ticket_status = 'arquivado'
     WHERE ticket_id = p_ticket_id;
 
-    COMMIT; -- Confirmar as alterações
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK; -- Reverter em caso de erro
         RAISE_APPLICATION_ERROR(-20005, 'Erro ao arquivar o ingresso: ' || SQLERRM);
 END;
 /
+
+
+
+-- 17. View geral
+
+CREATE VIEW view_all AS
+SELECT
+    s.session_id,
+    s.session_name,
+    s.session_description,
+    s.session_date,
+    s.duration_in_minutes,
+    r.room_name,
+    r.capacity,
+    t.ticket_id,
+    t.customer_id,
+    c.customer_name,
+    c.customer_email,
+    tp.seat_category,
+    tp.price,
+    t.balance,
+    t.ticket_status
+FROM
+    Sessions s
+INNER JOIN TheaterRooms r ON s.room_id = r.room_id
+INNER JOIN TicketPrices tp ON s.session_id = tp.session_id
+INNER JOIN Tickets t ON s.session_id = t.session_id
+INNER JOIN Customers c ON t.customer_id = c.customer_id;
+
+
+
+--Seats and TheaterRooms View
+
+CREATE VIEW view_seats_rooms AS
+SELECT
+    s.seat_id,
+    s.seat_category,
+    s.seat_number,
+    s.seat_row,
+    r.room_name,
+    r.capacity
+FROM
+    Seats s
+INNER JOIN TheaterRooms r ON s.room_id = r.room_id;
+
+-- Seats, Sessions, and TheaterRooms View
+CREATE VIEW view_seats_sessions_rooms AS
+SELECT
+    s.seat_id,
+    s.seat_category,
+    s.seat_number,
+    s.seat_row,
+    r.room_name,
+    r.capacity,
+    se.session_name,
+    se.session_date,
+    se.duration_in_minutes
+FROM
+    Seats s
+INNER JOIN TheaterRooms r ON s.room_id = r.room_id
+INNER JOIN Sessions se ON r.room_id = se.room_id;
+
+-- Sessions, Tickets, and TicketPrices View
+CREATE VIEW view_sessions_tickets_prices AS
+SELECT
+    s.session_id,
+    s.session_name,
+    s.session_date,
+    s.duration_in_minutes,
+    t.ticket_id,
+    t.customer_id,
+    tp.seat_category,
+    tp.price
+FROM
+    Sessions s
+INNER JOIN TicketPrices tp ON s.session_id = tp.session_id
+INNER JOIN Tickets t ON s.session_id = t.session_id;
+
+--Customers, Tickets, and TicketPrices View
+CREATE VIEW view_customers_tickets_prices AS
+SELECT
+    c.customer_id,
+    c.customer_name,
+    c.customer_email,
+    t.ticket_id,
+    tp.seat_category,
+    tp.price
+FROM
+    Customers c
+INNER JOIN Tickets t ON c.customer_id = t.customer_id
+INNER JOIN TicketPrices tp ON t.session_id = tp.session_id;
+
+--Customers and Transactions View
+CREATE VIEW view_customers_transactions AS
+SELECT
+    c.customer_id,
+    c.customer_name,
+    c.customer_email,
+    tr.transaction_id,
+    tr.transaction_type,
+    tr.transaction_date,
+    tr.transaction_amount,
+    tr.description
+FROM
+    Customers c
+INNER JOIN Transactions tr ON c.customer_id = tr.customer_id;
 
 

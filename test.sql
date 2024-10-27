@@ -3,7 +3,8 @@
 CREATE OR REPLACE PROCEDURE add_seat (
     p_seat_category IN VARCHAR2,
     p_seat_number IN VARCHAR2,
-    p_room_id IN NUMBER
+    p_room_id IN NUMBER,
+    p_seat_row IN NUMBER
 ) AS
 BEGIN
     -- Verifica se a sala existe
@@ -17,22 +18,19 @@ BEGIN
     END;
 
     -- Insere a nova cadeira
-    INSERT INTO Seats (seat_category, seat_number, room_id)
-    VALUES (p_seat_category, p_seat_number, p_room_id);
+    INSERT INTO Seats (seat_category, seat_number, seat_row, room_id)
+    VALUES (p_seat_category, p_seat_number, p_seat_row, p_room_id);
 
     -- Atualiza a capacidade da sala (incrementa o número de assentos)
-    UPDATE TheaterRooms 
-    SET capacity = capacity + 1 
-    WHERE room_id = p_room_id;
 
-    DBMS_OUTPUT.PUT_LINE('Cadeira ' || p_seat_number || ' adicionada com sucesso à sala ' || p_room_id);
+    DBMS_OUTPUT.PUT_LINE('Assento ' || p_seat_number || ' adicionadp com sucesso à sala ' || p_room_id);
     COMMIT;
 
 EXCEPTION
     WHEN DUP_VAL_ON_INDEX THEN
-        RAISE_APPLICATION_ERROR(-20002, 'Erro: O número da cadeira ' || p_seat_number || ' já existe na sala ' || p_room_id || '.');
+        RAISE_APPLICATION_ERROR(-20002, 'Erro: O número da assento ' || p_seat_number || ' já existe na sala ' || p_room_id || '.');
     WHEN OTHERS THEN
-        RAISE_APPLICATION_ERROR(-20003, 'Erro ao adicionar cadeira: ' || SQLERRM);
+        RAISE_APPLICATION_ERROR(-20003, 'Erro ao adicionar assento: ' || SQLERRM);
 END add_seat;
 /
 
@@ -40,8 +38,6 @@ END add_seat;
 -- 2. Procedimento para adicionar uma sala
 CREATE OR REPLACE PROCEDURE add_theater_room( p_room_name VARCHAR2) IS
 BEGIN
-    -- Obtem o próximo valor da sequência para o ROOM_ID
-    -- v_room_id := room_id_seq.NEXTVAL;
 
     -- Insere a nova sala
     INSERT INTO theaterrooms (room_name) VALUES (p_room_name);
@@ -63,73 +59,57 @@ END add_theater_room;
 CREATE OR REPLACE PROCEDURE add_session (
     p_session_name IN VARCHAR2,
     p_session_description IN VARCHAR2,
-    p_start_time IN TIMESTAMP,
-    p_duration_in_hours IN NUMBER,
+    p_session_date IN TIMESTAMP,
+    p_duration_in_minutes IN NUMBER,
     p_room_id IN NUMBER,
-    p_session_state IN VARCHAR2
-) AS
+    p_standard_price IN NUMBER,
+    p_premium_price IN NUMBER,
+    p_vip_price IN NUMBER
+) IS
+    v_count NUMBER;
 BEGIN
-    -- Validação para verificar se o nome da sessão não é nulo
-    IF p_session_name IS NULL THEN
-        RAISE_APPLICATION_ERROR(-20001, 'Erro: O nome da sessão não pode ser nulo.');
-    END IF;
-
-    -- Verifica se a sala existe
     DECLARE
-        v_count NUMBER;
+        p_session_id NUMBER;
     BEGIN
-        SELECT COUNT(*)
-        INTO v_count
-        FROM theaterrooms
-        WHERE room_id = p_room_id;
-
-        IF v_count = 0 THEN
-            RAISE_APPLICATION_ERROR(-20002, 'Erro: Sala não encontrada.');
+        -- Validação de preço
+        IF (p_standard_price <= 0 OR p_premium_price <= 0 OR p_VIP_price <= 0)
+        THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Todos preços devem ser positivos');
         END IF;
-    END;
 
-    -- Inserção da nova sessão
-    INSERT INTO Sessions (session_name, session_description, start_time, duration_in_hours, room_id, session_state)
-    VALUES (p_session_name, p_session_description, p_start_time, p_duration_in_hours, p_room_id, p_session_state);
+        IF(p_standard_price >= p_premium_price)
+        THEN
+            RAISE_APPLICATION_ERROR(-20002, 'O Preço do premium deve ser maior que o do standard.');
+        END IF;
+
+        IF(p_premium_price >= p_vip_price)
+        THEN
+            RAISE_APPLICATION_ERROR(-20002, 'O Preço do VIP deve ser maior que o do  premium.');
+        END IF;
+        -- Inserção da nova sessão
+        INSERT INTO Sessions (session_name, session_description, session_date, duration_in_minutes, room_id, session_state)
+        VALUES (p_session_name, p_session_description, p_session_date, p_duration_in_minutes, p_room_id, 'aberta') RETURNING session_id INTO p_session_id;
+
+        --Adicionando os preços
+        IF(p_session_id  > 0) THEN
+            INSERT INTO TicketPrices (session_id, seat_category, price)
+            VALUES (p_session_id, 'STANDARD', p_standard_price);
+
+            INSERT INTO TicketPrices (session_id, seat_category, price)
+            VALUES (p_session_id, 'PREMIUM', p_premium_price);
+
+            INSERT INTO TicketPrices (session_id, seat_category, price)
+            VALUES (p_session_id, 'VIP', p_vip_price);
+        END IF;
+
+    END;
     
     DBMS_OUTPUT.PUT_LINE('Sessão adicionada com sucesso: ' || p_session_name);
     COMMIT;
-END;
-/
-
-
--- 4. Procedimento para adicionar um preço
-CREATE OR REPLACE PROCEDURE add_ticket_price (
-    p_session_id IN NUMBER,
-    p_seat_category IN VARCHAR2,
-    p_price IN NUMBER
-) AS
-BEGIN
-    -- Validação para verificar se a sessão existe
-    DECLARE
-        v_count NUMBER;
-    BEGIN
-        SELECT COUNT(*)
-        INTO v_count
-        FROM Sessions
-        WHERE session_id = p_session_id;
-
-        IF v_count = 0 THEN
-            RAISE_APPLICATION_ERROR(-20001, 'Erro: Sessão não encontrada.');
-        END IF;
-    END;
-
-    -- Validação para verificar se o preço não é nulo ou negativo
-    IF p_price IS NULL OR p_price < 0 THEN
-        RAISE_APPLICATION_ERROR(-20002, 'Erro: O preço não pode ser nulo ou negativo.');
-    END IF;
-
-    -- Inserção do novo preço do ingresso
-    INSERT INTO TicketPrices (session_id, seat_category, price)
-    VALUES (p_session_id, p_seat_category, p_price);
-
-    DBMS_OUTPUT.PUT_LINE('Preço de ingresso adicionado com sucesso para a sessão ID: ' || p_session_id);
-    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Erro ao adicionar sessão: ' || SQLERRM);
+    
 END;
 /
 
@@ -300,10 +280,7 @@ END;
 
 SET SERVEROUTPUT ON;
 BEGIN
-    -- Teste de adição de sala com nome único
-    -- add_theater_room( p_room_name VARCHAR2)
-    
-    add_theater_room('Sala Principal 7');
+    add_theater_room('Sala Principal 20');
 END;
 /
 
@@ -311,60 +288,30 @@ END;
 BEGIN
     -- Teste de adição de assento na sala 1, categoria VIP
     -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER) 
-    add_seat('VIP', 'A2', 20240003);
+    add_seat('VIP', 'B6', 20240022); --'VIP''STANDARD''PREMIUM'
 END;
 /
-
--- Teste de adição de assento em uma sala inexistente
-BEGIN
-    -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER) 
-    add_seat('Standard', '02', 999); -- Sala inexistente
-END;
-/
-
 
 -- Testando a adição de uma sessão
 BEGIN
-    -- Teste de adição de sessão com sala válida
-    -- add_session (p_session_name IN VARCHAR2, p_session_description IN VARCHAR2, p_start_time IN TIMESTAMP, p_duration_in_hours IN NUMBER, p_room_id IN NUMBER, p_session_state IN VARCHAR2)
-    add_session('Peça de Teatro', 'Uma peça emocionante', SYSTIMESTAMP, 2, 1, 'aberta');
+    --add_session add_session (_session_name IN VARCHAR2,_session_description IN VARCHAR2,_session_date IN TIMESTAMP,_duration_in_minutes IN NUMBER,_room_id IN NUMBER,_standard_price IN NUMBER,_premium_price IN NUMBER,_vip_price IN NUMBER)
+    add_session('Sessão 20', 'Descrição da Sessão 2', TO_TIMESTAMP('29/10/24 18:00', 'DD/MM/YY HH24:MI'), 30, 20240021, 100, 200, 300);
 
 END;
 /
 
--- Teste de adição de sessão em sala inexistente
+
+-- Teste de adição de cliente
 BEGIN
-    add_session('Sessão Fantasma', 'Sessão em sala inexistente', SYSTIMESTAMP, 1, 999, 'aberta');
+    add_customer('João Silva', 'joaoa@example.com', 100.00);
 END;
 /
 
--- Teste de adição de preço de ingresso para sessão válida
-BEGIN
-    add_ticket_price(1, 'VIP', 50.00);
-END;
-/
-
--- Teste de adição de preço de ingresso para sessão inexistente
-BEGIN
-    add_ticket_price(999, 'Standard', 30.00); -- Sessão inexistente
-END;
-/
-
--- Teste de adição de cliente com email único
-BEGIN
-    add_customer('João Silva', 'joao.silva@example.com', 100.00);
-END;
-/
-
--- Teste de adição de cliente com email duplicado
-BEGIN
-    add_customer('Maria Santos', 'joao.silva@example.com', 50.00); -- Email duplicado
-END;
-/
 
 -- Teste de adição de ingresso com cliente e sessão válidos
 BEGIN
-    add_ticket(1, 1, 1, 'pendente');
+    --add_ticket ( p_session_id IN NUMBER, p_customer_id IN NUMBER, p_seat_id IN NUMBER, p_ticket_status IN VARCHAR2) 
+    add_ticket(1, 20240021, 1, 'pendente');
 END;
 /
 
@@ -386,3 +333,8 @@ BEGIN
     add_transaction(1, 999, 'refund', 50.00, 'Reembolso de ingresso'); -- Ingresso inexistente
 END;
 /
+
+
+
+
+
