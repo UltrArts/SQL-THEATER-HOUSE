@@ -261,6 +261,9 @@ BEGIN
     -- Mensagem de sucesso
     v_message := 'Ticket adicionado com sucesso. Troco: ' || (p_amount_paid + v_balance - v_ticket_price) || ' MT.';
     DBMS_OUTPUT.PUT_LINE(v_message);
+
+    -- Chamar a procedure para fechar a sessão se a capacidade estiver cheia
+    close_session_if_full(p_session_id);
     
 EXCEPTION
     WHEN OTHERS THEN
@@ -269,7 +272,30 @@ END add_ticket;
 /
 
 
+-- Procedure para fechar a sessão se a capacidade máxima for atingida
+CREATE OR REPLACE PROCEDURE close_session_if_full(p_session_id NUMBER) AS
+    total_tickets_sold NUMBER;
+    room_capacity NUMBER;
+BEGIN
+    -- Contar o total de tickets vendidos para a sessão especificada
+    SELECT COUNT(*) INTO total_tickets_sold
+    FROM Tickets
+    WHERE session_id = p_session_id;
 
+    -- Obter a capacidade da sala da sessão especificada
+    SELECT r.capacity INTO room_capacity
+    FROM TheaterRooms r
+    JOIN Sessions s ON s.room_id = r.room_id
+    WHERE s.session_id = p_session_id;
+
+    -- Verificar se atingiu a capacidade máxima
+    IF total_tickets_sold >= room_capacity THEN
+        UPDATE Sessions
+        SET session_state = 'fechada'
+        WHERE session_id = p_session_id;
+    END IF;
+END;
+/
 
 
 
@@ -380,11 +406,13 @@ EXCEPTION
 END check_in;
 /
 
+
+
 -- Adiando Sessão
-CREATE OR REPLACE FUNCTION postpone_session(
+CREATE OR REPLACE PROCEDURE postpone_session(
     p_session_id NUMBER,
     p_new_date TIMESTAMP
-) RETURN VARCHAR2 AS
+) AS
     v_old_date TIMESTAMP;
     v_session_state VARCHAR2(50);
 BEGIN
@@ -394,9 +422,10 @@ BEGIN
     FROM Sessions
     WHERE session_id = p_session_id;
 
-     -- Verificar se a sessão está aberta
+    -- Verificar se a sessão está aberta
     IF v_session_state != 'aberta' THEN
-        RETURN 'Erro: A sessão deve estar com o estado "aberta" para ser adiada.';
+        DBMS_OUTPUT.PUT_LINE('Erro: A sessão deve estar com o estado "aberta" para ser adiada.');
+        RETURN;
     END IF;
 
     -- Validar se a nova data é maior que a data atual
@@ -410,16 +439,16 @@ BEGIN
         
         COMMIT;
         
-        RETURN 'Sessão atualizada com sucesso para a data ' || TO_CHAR(p_new_date, 'DD/MM/YYYY HH24:MI:SS');
+        DBMS_OUTPUT.PUT_LINE('Sessão atualizada com sucesso para a data ' || TO_CHAR(p_new_date, 'DD/MM/YYYY HH24:MI:SS'));
     ELSE
-        RETURN 'Erro: A nova data deve ser maior que a data atual da sessão.';
+        DBMS_OUTPUT.PUT_LINE('Erro: A nova data deve ser maior que a data atual da sessão.');
     END IF;
     
 EXCEPTION
     WHEN NO_DATA_FOUND THEN
-        RETURN 'Erro: Sessão com o ID especificado não encontrada.';
+        DBMS_OUTPUT.PUT_LINE('Erro: Sessão com o ID especificado não encontrada.');
     WHEN OTHERS THEN
-        RETURN 'Erro ao atualizar a data da sessão: ' || SQLERRM;
+        DBMS_OUTPUT.PUT_LINE('Erro ao atualizar a data da sessão: ' || SQLERRM);
 END;
 /
 
@@ -435,31 +464,37 @@ CREATE OR REPLACE PROCEDURE process_ticket_refund (
     v_days_difference NUMBER;
     v_refund_amount NUMBER;
     v_refund_percentage NUMBER;
+    v_session_state VARCHAR2(50);
 
 BEGIN
-    -- Obter a data da sessão e o valor do ticket
-    SELECT s.session_date, t.customer_id, tp.price
-    INTO v_session_date, v_customer_id, v_ticket_price
+    -- Obter a data, estado da sessão e o valor do ticket
+    SELECT s.session_date, s.session_state, t.customer_id, tp.price
+    INTO v_session_date, v_session_state, v_customer_id, v_ticket_price
     FROM Tickets t
     JOIN Sessions s ON t.session_id = s.session_id
     JOIN TicketPrices tp ON tp.session_id = s.session_id AND tp.seat_category = (SELECT seat_category FROM Seats WHERE seat_id = t.seat_id)
     WHERE t.ticket_id = p_ticket_id;
 
-    -- Calcular o número de dias entre a data atual e a data da sessão
-    v_days_difference := TRUNC(v_session_date) - TRUNC(CURRENT_TIMESTAMP);
-
-    -- Determinar a porcentagem de reembolso com base nos dias de antecedência
-    IF v_days_difference > 3 THEN
-        v_refund_percentage := 1;  -- Reembolso total, ou seja, 100%
-    ELSIF v_days_difference = 3 THEN
-        v_refund_percentage := 0.70;  -- 70% de reembolso
-    ELSIF v_days_difference = 2 THEN
-        v_refund_percentage := 0.50;  -- 50% de reembolso
-    ELSIF v_days_difference = 1 THEN
-        v_refund_percentage := 0.25;  -- 25% de reembolso
+    -- Verificar se a sessão está adiada
+    IF v_session_state = 'adiada' THEN
+        v_refund_percentage := 1;  -- Reembolso total de 100%
     ELSE
-        DBMS_OUTPUT.PUT_LINE('Reembolso recusado: O pedido foi feito com menos de um dia de antecedência.');
-        RETURN;
+        -- Calcular o número de dias entre a data atual e a data da sessão
+        v_days_difference := TRUNC(v_session_date) - TRUNC(CURRENT_TIMESTAMP);
+
+        -- Determinar a porcentagem de reembolso com base nos dias de antecedência
+        IF v_days_difference > 3 THEN
+            v_refund_percentage := 1;  -- Reembolso total de 100%
+        ELSIF v_days_difference = 3 THEN
+            v_refund_percentage := 0.70;  -- 70% de reembolso
+        ELSIF v_days_difference = 2 THEN
+            v_refund_percentage := 0.50;  -- 50% de reembolso
+        ELSIF v_days_difference = 1 THEN
+            v_refund_percentage := 0.25;  -- 25% de reembolso
+        ELSE
+            DBMS_OUTPUT.PUT_LINE('Reembolso recusado: O pedido foi feito com menos de um dia de antecedência.');
+            RETURN;
+        END IF;
     END IF;
 
     -- Calcular o valor do reembolso
@@ -536,7 +571,7 @@ END;
 -- Testando a adição de uma sessão
 BEGIN
     --add_session add_session (_session_name IN VARCHAR2,_session_description IN VARCHAR2,_session_date IN TIMESTAMP,_duration_in_minutes IN NUMBER,_room_id IN NUMBER,_standard_price IN NUMBER,_premium_price IN NUMBER,_vip_price IN NUMBER)
-    add_session('Sessão 1', 'Descrição da Sessão 1', TO_TIMESTAMP('30/10/24 18:00', 'DD/MM/YY HH24:MI'), 60, 20240047, 100, 200, 300);
+    add_session('Sessão 3', 'Descrição da Sessão 3', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240047, 100, 200, 300);
 
 END;
 /
@@ -552,7 +587,7 @@ END;
 -- Teste de adição de ingresso com cliente e sessão válidos
 BEGIN
     --add_ticket(p_session_id IN NUMBER,p_customer_id IN NUMBER,p_seat_id IN NUMBER  IN VARCHAR2,p_amount_paid IN NUMBER)
-    add_ticket(20240021, 20240063, 20240054, 200);
+    add_ticket(20240023, 20240063, 20240054, 300);
 END;
 /
 
@@ -561,20 +596,22 @@ BEGIN
     check_in (20240015);
     
 END;
+/
 
 
 BEGIN
     -- postpone_session(p_session_id NUMBER,p_new_date TIMESTAMP)
-    postpone_session(2024 ,TO_TIMESTAMP('29/10/24 18:00', 'DD/MM/YY HH24:MI'));
+    postpone_session(20240022 ,TO_TIMESTAMP('31/10/24 18:00', 'DD/MM/YY HH24:MI'));
 
 END;
+/
 
 --============================== BÔNUS ====================================
 
 -- Reembolsando um ingresso específico
 BEGIN
     -- process_ticket_refund (p_ticket_id NUMBER);
-    process_ticket_refund (2024);
+    process_ticket_refund(2024);
 
 END;
 

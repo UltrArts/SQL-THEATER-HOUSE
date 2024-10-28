@@ -13,7 +13,7 @@ BEGIN
 END;
 
 
--- 1. Criação da tabela de Assentos (Seats)
+-- 1. Criação da tabela de Assentos (Seats) 
 -- Assentos serão fixos para todas as sessões, registrados uma só vez.
 CREATE TABLE Seats (
     seat_id NUMBER PRIMARY KEY, -- Chave primária para o assento
@@ -56,9 +56,6 @@ CREATE TABLE Sessions (
 
 
 
-
-
-
 -- 4. Criação da tabela de Preços (TicketPrices)
 -- Diferentes preços para categorias de assentos por sessão.
 CREATE TABLE TicketPrices (
@@ -81,7 +78,6 @@ CREATE TABLE Customers (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
 
 
 -- ALTER TABLE TICKETS ADD ( balance DECIMAL(10, 2) DEFAULT 0);
@@ -351,8 +347,6 @@ BEGIN
 END;
 
 
--- 12 Trigger para impedir que a capacidade da sala seja excedida.
-
 
 -- 11. Trigger para impedir compra de assentos já ocupados.
 CREATE OR REPLACE TRIGGER prevent_double_booking
@@ -372,35 +366,7 @@ BEGIN
 END;
 /
 
--- 12. Trigger para mudar o estado da sessão para "fechada" quando atingir a capacidade máxima.
-CREATE OR REPLACE TRIGGER close_session_when_full
-AFTER INSERT ON Tickets
-DECLARE
-    total_tickets_sold NUMBER;
-    room_capacity NUMBER;
-BEGIN
-    -- Contar total de tickets vendidos para a sessão
-    SELECT COUNT(*) INTO total_tickets_sold
-    FROM Tickets
-    WHERE session_id IN (SELECT session_id FROM Tickets);  -- Assume que todos os novos tickets pertencem à mesma sessão.
 
-    -- Obter a capacidade da sala
-    SELECT r.capacity INTO room_capacity
-    FROM TheaterRooms r
-    JOIN Sessions s ON s.room_id = r.room_id
-    WHERE s.session_id IN (SELECT session_id FROM Tickets); -- Acessa a capacidade da sala da sessão correspondente
-
-    -- Verificar se atingiu a capacidade máxima
-    IF total_tickets_sold >= room_capacity THEN
-        UPDATE Sessions
-        SET session_state = 'fechada'
-        WHERE session_id IN (SELECT session_id FROM Tickets);
-    END IF;
-END;
-/
-DROP FUNCTION check_session_overlap;
-
--- DROP TRIGGER TRG_VALIDATE;
 
 -- 13  TRIGGER Para Validar de Horários: Implementar uma lógica que garanta o intervalo mínimo de 15 minutos entre as sessões
 CREATE OR REPLACE TRIGGER trg_validate_session
@@ -485,7 +451,6 @@ BEGIN
     WHERE session_id = :OLD.session_id;
 END;
 /
-
 
 -- 17  Capacidade de Sala: Criar lógica para fechar sessões quando a capacidade máxima da sala for atingida
 CREATE OR REPLACE TRIGGER trg_close_session_on_capacity
