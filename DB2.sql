@@ -1,3 +1,18 @@
+BEGIN
+    -- Excluir os dados em ordem inversa da dependência
+    DELETE FROM Transactions;  -- Tabela dependente de Tickets e Customers
+    DELETE FROM Tickets;       -- Tabela dependente de Sessions, Customers e Seats
+    DELETE FROM TicketPrices;   -- Tabela dependente de Sessions
+    DELETE FROM Customers;      -- Tabela dependente de Transactions
+    DELETE FROM Sessions;       -- Tabela dependente de TheaterRooms
+    DELETE FROM Seats;          -- Tabela dependente de TheaterRooms
+    DELETE FROM TheaterRooms;   -- Tabela sem dependências
+    
+    -- Opcionalmente, use um COMMIT se o modo de transação não estiver em modo autocommit
+    COMMIT;
+END;
+
+
 -- 1. Criação da tabela de Assentos (Seats)
 -- Assentos serão fixos para todas as sessões, registrados uma só vez.
 CREATE TABLE Seats (
@@ -38,7 +53,11 @@ CREATE TABLE Sessions (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
--- ALTER TABLE SESSIONS RENAME COLUMN session_date TO session_date;
+
+
+
+
+
 
 -- 4. Criação da tabela de Preços (TicketPrices)
 -- Diferentes preços para categorias de assentos por sessão.
@@ -64,6 +83,7 @@ CREATE TABLE Customers (
 );
 
 
+
 -- ALTER TABLE TICKETS ADD ( balance DECIMAL(10, 2) DEFAULT 0);
 -- 6. Criação da tabela de Ingressos (Tickets)
 -- Associações de clientes com sessões e assentos, para compra de ingressos.
@@ -72,8 +92,8 @@ CREATE TABLE Tickets (
     session_id NUMBER NOT NULL, -- ID da sessão associada
     customer_id NUMBER NOT NULL, -- ID do cliente
     seat_id NUMBER NOT NULL, -- ID do assento
-    balance DECIMAL(10, 2) DEFAULT 0, -- Saldo
-    ticket_status VARCHAR2(50) CHECK (ticket_status IN ('pendente', 'arquivado')), -- Status do ticket após validação
+    price DECIMAL(10, 2) DEFAULT 0, -- Saldo
+    ticket_status VARCHAR2(50) CHECK (ticket_status IN ('pendente', 'arquivado', 'reembolsado')), -- Status do ticket após validação
     FOREIGN KEY (session_id) REFERENCES Sessions(session_id), -- Chave estrangeira para a sessão
     FOREIGN KEY (customer_id) REFERENCES Customers(customer_id), -- Chave estrangeira para o cliente
     FOREIGN KEY (seat_id) REFERENCES Seats(seat_id), -- Chave estrangeira para o assento
@@ -88,7 +108,7 @@ CREATE TABLE Transactions (
     transaction_id NUMBER PRIMARY KEY, -- Chave primária para a transação
     customer_id NUMBER NOT NULL, -- ID do cliente
     ticket_id NUMBER NOT NULL, -- ID do ingresso
-    transaction_type VARCHAR2(50) CHECK (transaction_type IN ('purchase', 'refund', 'validation')), -- Tipo da transação
+    transaction_type VARCHAR2(50) CHECK (transaction_type IN ('compra', 'reembolso', 'validação')), -- Tipo da transação
     transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Data da transação
     transaction_amount NUMBER NOT NULL,
     description VARCHAR2(255),
@@ -355,29 +375,32 @@ END;
 -- 12. Trigger para mudar o estado da sessão para "fechada" quando atingir a capacidade máxima.
 CREATE OR REPLACE TRIGGER close_session_when_full
 AFTER INSERT ON Tickets
-FOR EACH ROW
 DECLARE
     total_tickets_sold NUMBER;
     room_capacity NUMBER;
 BEGIN
+    -- Contar total de tickets vendidos para a sessão
     SELECT COUNT(*) INTO total_tickets_sold
-    FROM Tickets t
-    WHERE t.session_id = :NEW.session_id;
+    FROM Tickets
+    WHERE session_id IN (SELECT session_id FROM Tickets);  -- Assume que todos os novos tickets pertencem à mesma sessão.
 
-    SELECT capacity INTO room_capacity
-    FROM TheaterRooms r, Sessions s
-    WHERE s.room_id = r.room_id
-    AND s.session_id = :NEW.session_id;
+    -- Obter a capacidade da sala
+    SELECT r.capacity INTO room_capacity
+    FROM TheaterRooms r
+    JOIN Sessions s ON s.room_id = r.room_id
+    WHERE s.session_id IN (SELECT session_id FROM Tickets); -- Acessa a capacidade da sala da sessão correspondente
 
-    IF total_tickets_sold = room_capacity THEN
+    -- Verificar se atingiu a capacidade máxima
+    IF total_tickets_sold >= room_capacity THEN
         UPDATE Sessions
         SET session_state = 'fechada'
-        WHERE session_id = :NEW.session_id;
+        WHERE session_id IN (SELECT session_id FROM Tickets);
     END IF;
 END;
 /
+DROP FUNCTION check_session_overlap;
 
-DROP TRIGGER TRG_VALIDATE;
+-- DROP TRIGGER TRG_VALIDATE;
 
 -- 13  TRIGGER Para Validar de Horários: Implementar uma lógica que garanta o intervalo mínimo de 15 minutos entre as sessões
 CREATE OR REPLACE TRIGGER trg_validate_session
@@ -441,7 +464,7 @@ END;
 CREATE OR REPLACE TRIGGER trg_refund_on_session_cancel
 AFTER UPDATE ON Sessions
 FOR EACH ROW
-WHEN (NEW.session_state IN ('cancelada', 'adiada') AND OLD.session_state = 'aberta')
+WHEN (NEW.session_state IN ('cancelada') AND OLD.session_state = 'aberta')
 BEGIN
     -- Atualiza o saldo dos clientes que compraram ingressos para a sessão cancelada/adiada
     UPDATE Customers c
@@ -467,111 +490,39 @@ END;
 -- 17  Capacidade de Sala: Criar lógica para fechar sessões quando a capacidade máxima da sala for atingida
 CREATE OR REPLACE TRIGGER trg_close_session_on_capacity
 AFTER INSERT ON Tickets
-FOR EACH ROW
 DECLARE
-    total_tickets_sold INTEGER;
-    room_capacity      INTEGER;
+    total_tickets_sold NUMBER;
+    room_capacity NUMBER;
 BEGIN
-    -- Obtém o número total de ingressos vendidos para a sessão
-    SELECT COUNT(*)
-    INTO total_tickets_sold
+    -- Contar o total de tickets vendidos para a sessão
+    SELECT COUNT(*) INTO total_tickets_sold
     FROM Tickets
-    WHERE session_id = :NEW.session_id;
+    WHERE session_id IN (SELECT session_id FROM Tickets); -- Assume que todos os novos tickets pertencem à mesma sessão.
 
-    -- Obtém a capacidade da sala associada à sessão
-    SELECT r.capacity -- Ajustado para 'capacity'
-    INTO room_capacity
-    FROM Sessions s
-    JOIN TheaterRooms r ON s.room_id = r.room_id -- Ajustado para 'TheaterRooms'
-    WHERE s.session_id = :NEW.session_id;
+    -- Obter a capacidade da sala
+    SELECT r.capacity INTO room_capacity
+    FROM TheaterRooms r
+    JOIN Sessions s ON s.room_id = r.room_id
+    WHERE s.session_id IN (SELECT session_id FROM Tickets); -- Acessa a capacidade da sala da sessão correspondente
 
-    -- Verifica se a capacidade máxima foi atingida
+    -- Verificar se atingiu a capacidade máxima
     IF total_tickets_sold >= room_capacity THEN
         UPDATE Sessions
         SET session_state = 'fechada'
-        WHERE session_id = :NEW.session_id;
+        WHERE session_id IN (SELECT session_id FROM Tickets);
     END IF;
 END;
 /
 
 
-
-
--- 13. Função para obter o preço do ingresso com base na categoria do assento.
-CREATE OR REPLACE FUNCTION get_ticket_price(p_session_id NUMBER, p_seat_category VARCHAR2)
-RETURN NUMBER
-IS
-    v_price NUMBER;
+--Trigger para tabela TSeats: Garantir número de linha positivo
+CREATE OR REPLACE TRIGGER trg_validate_seat_row
+BEFORE INSERT OR UPDATE ON Seats
+FOR EACH ROW
 BEGIN
-    SELECT price INTO v_price
-    FROM TicketPrices
-    WHERE session_id = p_session_id
-    AND seat_category = p_seat_category;
-
-    RETURN v_price;
-END;
-/
-
--- 14. Procedure para efetuar a compra de um ingresso e inserir no histórico de transações.
-CREATE OR REPLACE PROCEDURE purchase_ticket(p_customer_id NUMBER, p_session_id NUMBER, p_seat_id NUMBER)
-IS
-    v_ticket_id NUMBER;
-BEGIN
-    -- Inserir o ingresso
-    INSERT INTO Tickets (session_id, customer_id, seat_id, ticket_status)
-    VALUES (p_session_id, p_customer_id, p_seat_id, 'pendente')
-    RETURNING ticket_id INTO v_ticket_id;
-
-    -- Registrar transação de compra
-    INSERT INTO Transactions (customer_id, ticket_id, transaction_type)
-    VALUES (p_customer_id, v_ticket_id, 'purchase');
-
-EXCEPTION
-    WHEN OTHERS THEN
-        ROLLBACK; -- Reverter em caso de erro
-        RAISE_APPLICATION_ERROR(-20003, 'Erro ao efetuar a compra do ingresso: ' || SQLERRM);
-END;
-/
-
--- 15. Procedure para efetuar reembolso de um ingresso.
-CREATE OR REPLACE PROCEDURE refund_ticket(p_ticket_id NUMBER)
-IS
-BEGIN
-    -- Registrar transação de reembolso
-    INSERT INTO Transactions (customer_id, ticket_id, transaction_type)
-    SELECT customer_id, ticket_id, 'refund'
-    FROM Tickets
-    WHERE ticket_id = p_ticket_id;
-
-    -- Atualizar status do ticket
-    DELETE FROM Tickets WHERE ticket_id = p_ticket_id;
-
-EXCEPTION
-    WHEN OTHERS THEN
-        ROLLBACK; -- Reverter em caso de erro
-        RAISE_APPLICATION_ERROR(-20004, 'Erro ao efetuar o reembolso do ingresso: ' || SQLERRM);
-END;
-/
-
--- 16. Procedure para arquivar um ingresso após validação.
-CREATE OR REPLACE PROCEDURE archive_ticket(p_ticket_id NUMBER)
-IS
-BEGIN
-    -- Registrar transação de validação
-    INSERT INTO Transactions (customer_id, ticket_id, transaction_type)
-    SELECT customer_id, ticket_id, 'validation'
-    FROM Tickets
-    WHERE ticket_id = p_ticket_id;
-
-    -- Atualizar status do ticket
-    UPDATE Tickets
-    SET ticket_status = 'arquivado'
-    WHERE ticket_id = p_ticket_id;
-
-EXCEPTION
-    WHEN OTHERS THEN
-        ROLLBACK; -- Reverter em caso de erro
-        RAISE_APPLICATION_ERROR(-20005, 'Erro ao arquivar o ingresso: ' || SQLERRM);
+  IF :NEW.seat_row <= 0 THEN
+    RAISE_APPLICATION_ERROR(-20001, 'A linha da cadeira deve ser positiva.');
+  END IF;
 END;
 /
 
@@ -579,7 +530,7 @@ END;
 
 -- 17. View geral
 
-CREATE VIEW view_all AS
+CREATE OR REPLACE VIEW view_all AS
 SELECT
     s.session_id,
     s.session_name,
@@ -587,7 +538,7 @@ SELECT
     s.session_date,
     s.duration_in_minutes,
     r.room_name,
-    r.capacity,
+    (SELECT COUNT(*) FROM Seats WHERE room_id = r.room_id) AS room_capacity, -- Capacidade calculada
     t.ticket_id,
     t.customer_id,
     c.customer_name,
@@ -607,34 +558,55 @@ INNER JOIN Customers c ON t.customer_id = c.customer_id;
 
 --Seats and TheaterRooms View
 
-CREATE VIEW view_seats_rooms AS
+CREATE OR REPLACE VIEW view_seats_rooms AS
 SELECT
     s.seat_id,
     s.seat_category,
     s.seat_number,
     s.seat_row,
     r.room_name,
-    r.capacity
+    (SELECT COUNT(*) FROM Seats WHERE room_id = r.room_id) AS room_capacity -- Capacidade calculada
 FROM
     Seats s
 INNER JOIN TheaterRooms r ON s.room_id = r.room_id;
 
 -- Seats, Sessions, and TheaterRooms View
-CREATE VIEW view_seats_sessions_rooms AS
+CREATE OR REPLACE VIEW view_seats_sessions_rooms AS
 SELECT
     s.seat_id,
     s.seat_category,
     s.seat_number,
     s.seat_row,
     r.room_name,
-    r.capacity,
+    (SELECT COUNT(*) FROM Seats WHERE room_id = r.room_id) AS room_capacity, -- Capacidade calculada,
     se.session_name,
+    se.session_id,
     se.session_date,
-    se.duration_in_minutes
+    se.duration_in_minutes,
+    tp.seat_category,
+    tp.price
 FROM
     Seats s
 INNER JOIN TheaterRooms r ON s.room_id = r.room_id
-INNER JOIN Sessions se ON r.room_id = se.room_id;
+INNER JOIN Sessions se ON r.room_id = se.room_id
+
+-- Session View
+CREATE OR REPLACE VIEW view_sessions_ticketprice AS
+SELECT 
+    s.session_id,
+    s.session_name,
+    s.session_description,
+    s.session_date,
+    s.duration_in_minutes,
+    s.room_id,
+    s.session_state,
+    tp.price AS ticket_price,
+    tp.seat_category AS ticket_seat_category
+FROM 
+    Sessions s
+JOIN 
+    TicketPrices tp ON s.session_id = tp.session_id;
+
 
 -- Sessions, Tickets, and TicketPrices View
 CREATE VIEW view_sessions_tickets_prices AS
@@ -680,5 +652,21 @@ SELECT
 FROM
     Customers c
 INNER JOIN Transactions tr ON c.customer_id = tr.customer_id;
+
+CREATE OR REPLACE VIEW vw_session_ticket_prices AS
+SELECT 
+    s.session_id,
+    s.session_name,
+    tp.seat_category,
+    tp.price,
+    tr.room_id,
+    tr.room_name
+FROM 
+    Sessions s
+JOIN 
+    TicketPrices tp ON s.session_id = tp.session_id
+JOIN 
+    TheaterRooms tr ON s.room_id = tr.room_id;
+
 
 
