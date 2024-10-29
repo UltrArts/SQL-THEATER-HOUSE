@@ -559,52 +559,61 @@ BEGIN
     add_theater_room('Sala A');
 END;
 /
+SELECT * FROM THEATERROOMS;
 
 -- Testando a adição de um assento
 BEGIN
     -- Teste de adição de assento na sala 1, categoria VIP
     -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER, p_seat_row IN NUMBER) 
-    add_seat('PREMIUM', 'B3', 20240049, 1); --'VIP''STANDARD''PREMIUM'
+    add_seat('PREMIUM', 'A3', 20240061, 1); --'VIP''STANDARD''PREMIUM'
 END;
 /
+SELECT * FROM VIEW_SEATS_ROOMS;
 
 -- Testando a adição de uma sessão
 BEGIN
     --add_session add_session (_session_name IN VARCHAR2,_session_description IN VARCHAR2,_session_date IN TIMESTAMP,_duration_in_minutes IN NUMBER,_room_id IN NUMBER,_standard_price IN NUMBER,_premium_price IN NUMBER,_vip_price IN NUMBER)
-    add_session('Sessão 1', 'Descrição da Sessão 1', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240049, 100, 200, 300);
+    add_session('Sessão 1', 'Descrição da Sessão 1', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240061, 100, 200, 300);
 
 END;
 /
+SELECT * FROM SESSIONS;
+-- UPDATE 
 
 
 -- Teste de adição de cliente
 BEGIN
-    add_customer('edson', 'sdsds@email.com', 100.00);
+    add_customer('edson', 'edson@email.com', 100.00);
 END;
 /
+SELECT * FROM CUSTOMERS;
 
 
+SELECT * FROM VIEW_SEATS_SESSIONS_ROOMS;
 -- Teste de adição de ingresso com cliente e sessão válidos
 BEGIN
     --add_ticket(p_session_id IN NUMBER,p_customer_id IN NUMBER,p_seat_id IN NUMBER  IN VARCHAR2,p_amount_paid IN NUMBER)
-    add_ticket(20240023, 20240063, 20240054, 300);
-END;
-/
-
---CREATE OR REPLACE PROCEDURE check_in (p_ticket_id IN NUMBER)
-BEGIN
-    check_in (20240015);
-    
+    add_ticket(20240041, 20240081, 20240061, 200);
 END;
 /
 
 
 BEGIN
     -- postpone_session(p_session_id NUMBER,p_new_date TIMESTAMP)
-    postpone_session(20240022 ,TO_TIMESTAMP('31/10/24 18:00', 'DD/MM/YY HH24:MI'));
-
+    postpone_session(20240041 ,TO_TIMESTAMP('31/10/24 18:00', 'DD/MM/YY HH24:MI'));
 END;
 /
+
+SELECT * FROM TICKETS;
+SELECT * FROM SESSIONS;
+
+--CREATE OR REPLACE PROCEDURE check_in (p_ticket_id IN NUMBER)
+BEGIN
+    check_in (20240041);
+END;
+/
+
+
 
 --============================== BÔNUS ====================================
 
