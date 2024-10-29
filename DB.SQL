@@ -6,6 +6,10 @@ CREATE TABLE Seats (
     seat_number VARCHAR2(10) NOT NULL UNIQUE -- Número único para cada assento
 );
 
+CREATE TABLE unknown(
+    name VARCHAR2(50)
+);
+
 
 -- 2. Criação da tabela de Salas (TheaterRooms)
 -- Cada sala de teatro com capacidade definida por assentos.

@@ -11,7 +11,7 @@ BEGIN
     -- Opcionalmente, use um COMMIT se o modo de transação não estiver em modo autocommit
     COMMIT;
 END;
-
+/
 
 -- 1. Criação da tabela de Assentos (Seats) 
 -- Assentos serão fixos para todas as sessões, registrados uma só vez.
@@ -25,7 +25,7 @@ CREATE TABLE Seats (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (room_id) REFERENCES TheaterRooms(room_id)
 );
-
+/
 
 
 -- 2. Criação da tabela de Salas (TheaterRooms)
@@ -37,7 +37,7 @@ CREATE TABLE TheaterRooms (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/
 
 -- 3. Criação da tabela de Espectáculos/Sessões (Sessions)
 -- Sessões marcadas em horários específicos, associadas a uma sala.
@@ -53,7 +53,7 @@ CREATE TABLE Sessions (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/
 
 
 -- 4. Criação da tabela de Preços (TicketPrices)
@@ -67,6 +67,7 @@ CREATE TABLE TicketPrices (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+/
 
 -- 5. Criação da tabela de Compradores (Customers)
 -- Clientes que compram ingressos.
@@ -78,7 +79,7 @@ CREATE TABLE Customers (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/
 
 -- ALTER TABLE TICKETS ADD ( balance DECIMAL(10, 2) DEFAULT 0);
 -- 6. Criação da tabela de Ingressos (Tickets)
@@ -96,7 +97,7 @@ CREATE TABLE Tickets (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/
 
 -- 7. Criação da tabela de Transações (Transactions)
 -- Histórico de compras, reembolsos e validações de ingressos.
@@ -113,7 +114,7 @@ CREATE TABLE Transactions (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
+/
 
 -- SCRIPT QUE CRIA TRIGGERS PARA CADA TABELA PARA O TIMESTAMP
 BEGIN

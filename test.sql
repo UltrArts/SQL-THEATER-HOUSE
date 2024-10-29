@@ -564,14 +564,14 @@ END;
 BEGIN
     -- Teste de adição de assento na sala 1, categoria VIP
     -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER, p_seat_row IN NUMBER) 
-    add_seat('PREMIUM', 'A3', 20240047, 1); --'VIP''STANDARD''PREMIUM'
+    add_seat('PREMIUM', 'B3', 20240049, 1); --'VIP''STANDARD''PREMIUM'
 END;
 /
 
 -- Testando a adição de uma sessão
 BEGIN
     --add_session add_session (_session_name IN VARCHAR2,_session_description IN VARCHAR2,_session_date IN TIMESTAMP,_duration_in_minutes IN NUMBER,_room_id IN NUMBER,_standard_price IN NUMBER,_premium_price IN NUMBER,_vip_price IN NUMBER)
-    add_session('Sessão 3', 'Descrição da Sessão 3', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240047, 100, 200, 300);
+    add_session('Sessão 1', 'Descrição da Sessão 1', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240049, 100, 200, 300);
 
 END;
 /
