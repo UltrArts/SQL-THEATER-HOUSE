@@ -43,7 +43,7 @@ BEGIN
 
     -- Atualiza a capacidade da sala (incrementa o número de assentos)
 
-    DBMS_OUTPUT.PUT_LINE('Assento ' || p_seat_number || ' adicionadp com sucesso à sala ' || p_room_id);
+    DBMS_OUTPUT.PUT_LINE('Assento ' || p_seat_number || ' adicionado com sucesso à sala ' || p_room_id);
     COMMIT;
 
 EXCEPTION
@@ -166,7 +166,8 @@ CREATE OR REPLACE PROCEDURE add_ticket(
 ) AS
     v_ticket_price      NUMBER;
     v_new_balance       NUMBER;
-    v_message           VARCHAR2(200);
+    current_state       VARCHAR2(200);
+    v_message             VARCHAR2(200);
     v_ticket_id         NUMBER;
     v_balance           NUMBER;
     v_count             NUMBER; -- variável para contagem
@@ -180,12 +181,26 @@ BEGIN
     IF v_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 'Erro: O ID da sessão não existe.');
     END IF;
+    -- VALIDAR ESTADO DA SESSÃO
+    SELECT session_state
+    INTO current_state
+    FROM Sessions
+    WHERE session_id = p_session_id;
+
+    IF current_state = 'finalizada' THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Erro: Esta sessão está finalizada.');
+    END IF;
+
+    IF current_state = 'cancelada' THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Erro: Esta sessão está cancelada.');
+    END IF;
 
     -- Valida a existência do customer_id
     SELECT COUNT(*)
     INTO v_count
     FROM Customers
     WHERE customer_id = p_customer_id;
+    
     
     IF v_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20002, 'Erro: O ID do cliente não existe.');
@@ -272,6 +287,8 @@ END add_ticket;
 /
 
 
+-- DELETE * FROM TRANSAC
+
 -- Procedure para fechar a sessão se a capacidade máxima for atingida
 CREATE OR REPLACE PROCEDURE close_session_if_full(p_session_id NUMBER) AS
     total_tickets_sold NUMBER;
@@ -283,16 +300,57 @@ BEGIN
     WHERE session_id = p_session_id;
 
     -- Obter a capacidade da sala da sessão especificada
-    SELECT r.capacity INTO room_capacity
-    FROM TheaterRooms r
-    JOIN Sessions s ON s.room_id = r.room_id
-    WHERE s.session_id = p_session_id;
+    SELECT COUNT(s.seat_id) INTO room_capacity
+    FROM Seats s
+    JOIN Sessions ss ON s.room_id = ss.room_id
+    WHERE ss.session_id = p_session_id;
 
+
+       
     -- Verificar se atingiu a capacidade máxima
-    IF total_tickets_sold >= room_capacity THEN
+    IF total_tickets_sold = room_capacity THEN
         UPDATE Sessions
         SET session_state = 'fechada'
         WHERE session_id = p_session_id;
+        DBMS_OUTPUT.PUT_LINE('SESSÃO FECHADA');
+    ELSE    
+        DBMS_OUTPUT.PUT_LINE('SESSÃO AINDA ABERTA');
+    END IF;
+END;
+/
+
+-- CANCELAR SESSÃO
+CREATE OR REPLACE PROCEDURE cancel_session(p_session_id NUMBER) AS
+    session_exists NUMBER;
+    current_state VARCHAR2(50);
+BEGIN
+    -- Verificar se a sessão existe
+    SELECT COUNT(*)
+    INTO session_exists
+    FROM Sessions
+    WHERE session_id = p_session_id;
+
+    -- Se a sessão existe, verificar o estado atual
+    IF session_exists = 0 THEN
+        DBMS_OUTPUT.PUT_LINE('Sessão com ID ' || p_session_id || ' não encontrada.');
+    ELSE
+        -- Obter o estado atual da sessão
+        SELECT session_state
+        INTO current_state
+        FROM Sessions
+        WHERE session_id = p_session_id;
+
+        -- Verificar se a sessão está finalizada
+        IF current_state = 'finalizada' THEN
+            DBMS_OUTPUT.PUT_LINE('A sessão com ID ' || p_session_id || ' já está finalizada e não pode ser cancelada.');
+        ELSE
+            -- Atualizar o estado da sessão para 'cancelada' se não estiver finalizada
+            UPDATE Sessions
+            SET session_state = 'cancelada'
+            WHERE session_id = p_session_id;
+
+            DBMS_OUTPUT.PUT_LINE('Sessão ' || p_session_id || ' foi cancelada com sucesso.');
+        END IF;
     END IF;
 END;
 /
@@ -422,11 +480,11 @@ BEGIN
     FROM Sessions
     WHERE session_id = p_session_id;
 
-    -- Verificar se a sessão está aberta
-    IF v_session_state != 'aberta' THEN
-        DBMS_OUTPUT.PUT_LINE('Erro: A sessão deve estar com o estado "aberta" para ser adiada.');
-        RETURN;
-    END IF;
+    -- -- Verificar se a sessão está aberta
+    -- IF v_session_state != 'aberta' THEN
+    --     DBMS_OUTPUT.PUT_LINE('Erro: A sessão deve estar com o estado "aberta" para ser adiada.');
+    --     RETURN;
+    -- END IF;
 
     -- Validar se a nova data é maior que a data atual
     IF p_new_date > v_old_date THEN
@@ -507,7 +565,7 @@ BEGIN
 
     -- Atualizar o estado do ticket para "reembolso"
     UPDATE Tickets
-    SET ticket_status = 'reembolso',
+    SET ticket_status = 'reembolsado',
         updated_at = CURRENT_TIMESTAMP
     WHERE ticket_id = p_ticket_id;
 
@@ -546,7 +604,10 @@ END;
 /
 
 
-
+--===================================================================================================================
+--===================================================================================================================
+--===================================================================================================================
+--===================================================================================================================
 
 
 -- ### 2. Testando com Funções Anônimas
@@ -565,62 +626,82 @@ SELECT * FROM THEATERROOMS;
 BEGIN
     -- Teste de adição de assento na sala 1, categoria VIP
     -- add_seat (p_seat_category IN VARCHAR2,p_seat_number IN VARCHAR2,p_room_id IN NUMBER, p_seat_row IN NUMBER) 
-    add_seat('PREMIUM', 'A3', 20240061, 1); --'VIP''STANDARD''PREMIUM'
+    add_seat('STANDARD', 'A3', 20240076, 3); --'VIP''STANDARD''PREMIUM'
 END;
 /
 SELECT * FROM VIEW_SEATS_ROOMS;
-
 -- Testando a adição de uma sessão
 BEGIN
     --add_session add_session (_session_name IN VARCHAR2,_session_description IN VARCHAR2,_session_date IN TIMESTAMP,_duration_in_minutes IN NUMBER,_room_id IN NUMBER,_standard_price IN NUMBER,_premium_price IN NUMBER,_vip_price IN NUMBER)
-    add_session('Sessão 1', 'Descrição da Sessão 1', TO_TIMESTAMP('1/11/24 19:30', 'DD/MM/YY HH24:MI'), 60, 20240061, 100, 200, 300);
+    add_session('Sessão 2', 'Descrição da Sessão 2', TO_TIMESTAMP('01/11/24 21:30', 'DD/MM/YY HH24:MI'), 60, 20240076, 100, 200, 300);
 
 END;
 /
 SELECT * FROM SESSIONS;
--- UPDATE 
-
 
 -- Teste de adição de cliente
+SELECT * FROM CUSTOMERS;
 BEGIN
-    add_customer('edson', 'edson@email.com', 100.00);
+    add_customer('Edson Da Cruz', 'edson.dacruz@email.com', 300.00);
 END;
 /
-SELECT * FROM CUSTOMERS;
-
 
 SELECT * FROM VIEW_SEATS_SESSIONS_ROOMS;
 -- Teste de adição de ingresso com cliente e sessão válidos
 BEGIN
     --add_ticket(p_session_id IN NUMBER,p_customer_id IN NUMBER,p_seat_id IN NUMBER  IN VARCHAR2,p_amount_paid IN NUMBER)
-    add_ticket(20240041, 20240081, 20240061, 200);
+    add_ticket(20240052, 20240095, 20240089, 200);
 END;
 /
 
 
+SELECT * FROM CUSTOMERS;
+
+SELECT * FROM SESSIONS;
+-- UPDATE 
+SELECT * FROM TICKETS;
+SELECT * FROM SEATS;
+SELECT * FROM VW_SESSION_TICKET_PRICES;
+SELECT * FROM TRANSACTIONS;
+
 BEGIN
     -- postpone_session(p_session_id NUMBER,p_new_date TIMESTAMP)
-    postpone_session(20240041 ,TO_TIMESTAMP('31/10/24 18:00', 'DD/MM/YY HH24:MI'));
+    postpone_session(20240052 ,TO_TIMESTAMP('03/11/24 19:30', 'DD/MM/YY HH24:MI'));
 END;
 /
 
 SELECT * FROM TICKETS;
+SELECT * FROM TRANSACTIONS;
 SELECT * FROM SESSIONS;
 
 --CREATE OR REPLACE PROCEDURE check_in (p_ticket_id IN NUMBER)
 BEGIN
-    check_in (20240041);
+    check_in (20240090);
 END;
 /
 
+BEGIN
+    cancel_session(20240053);
+END;
+/
 
+SELECT * FROM SESSIONS;
+
+SELECT * FROM VIEW_SEATS_SESSIONS_ROOMS;
+-- Teste de adição de ingresso com cliente e sessão cancelada
+BEGIN
+    --add_ticket(p_session_id IN NUMBER,p_customer_id IN NUMBER,p_seat_id IN NUMBER  IN VARCHAR2,p_amount_paid IN NUMBER)
+    add_ticket(20240053, 20240095, 20240086, 0);
+END;
+/
 
 --============================== BÔNUS ====================================
-
+SELECT * FROM TICKETS;
+SELECT * FROM TRANSACTIONS;
+SELECT * FROM CUSTOMERS;
 -- Reembolsando um ingresso específico
 BEGIN
     -- process_ticket_refund (p_ticket_id NUMBER);
-    process_ticket_refund(2024);
-
+    process_ticket_refund(20240089);
 END;
 

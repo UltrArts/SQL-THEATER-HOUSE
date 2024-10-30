@@ -25,7 +25,7 @@ CREATE TABLE Seats (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (room_id) REFERENCES TheaterRooms(room_id)
 );
-/
+
 
 
 -- 2. Criação da tabela de Salas (TheaterRooms)
@@ -37,7 +37,7 @@ CREATE TABLE TheaterRooms (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 -- 3. Criação da tabela de Espectáculos/Sessões (Sessions)
 -- Sessões marcadas em horários específicos, associadas a uma sala.
@@ -53,7 +53,7 @@ CREATE TABLE Sessions (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 
 -- 4. Criação da tabela de Preços (TicketPrices)
@@ -67,7 +67,7 @@ CREATE TABLE TicketPrices (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 -- 5. Criação da tabela de Compradores (Customers)
 -- Clientes que compram ingressos.
@@ -79,7 +79,7 @@ CREATE TABLE Customers (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 -- ALTER TABLE TICKETS ADD ( balance DECIMAL(10, 2) DEFAULT 0);
 -- 6. Criação da tabela de Ingressos (Tickets)
@@ -97,7 +97,7 @@ CREATE TABLE Tickets (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 -- 7. Criação da tabela de Transações (Transactions)
 -- Histórico de compras, reembolsos e validações de ingressos.
@@ -114,7 +114,7 @@ CREATE TABLE Transactions (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-/
+
 
 -- SCRIPT QUE CRIA TRIGGERS PARA CADA TABELA PARA O TIMESTAMP
 BEGIN
@@ -453,32 +453,36 @@ BEGIN
 END;
 /
 
+DROP TRIGGER trg_close_session_on_capacity;
 -- 17  Capacidade de Sala: Criar lógica para fechar sessões quando a capacidade máxima da sala for atingida
 CREATE OR REPLACE TRIGGER trg_close_session_on_capacity
 AFTER INSERT ON Tickets
+FOR EACH ROW
 DECLARE
     total_tickets_sold NUMBER;
     room_capacity NUMBER;
 BEGIN
-    -- Contar o total de tickets vendidos para a sessão
+    -- Contar o total de tickets vendidos para a sessão do ticket recém-inserido
     SELECT COUNT(*) INTO total_tickets_sold
     FROM Tickets
-    WHERE session_id IN (SELECT session_id FROM Tickets); -- Assume que todos os novos tickets pertencem à mesma sessão.
+    WHERE session_id = :NEW.session_id;
 
-    -- Obter a capacidade da sala
+    -- Obter a capacidade da sala para a sessão do ticket recém-inserido
     SELECT r.capacity INTO room_capacity
     FROM TheaterRooms r
     JOIN Sessions s ON s.room_id = r.room_id
-    WHERE s.session_id IN (SELECT session_id FROM Tickets); -- Acessa a capacidade da sala da sessão correspondente
+    WHERE s.session_id = :NEW.session_id;
 
-    -- Verificar se atingiu a capacidade máxima
+    -- Fechar a sessão apenas se o total de tickets vendidos atingir ou exceder a capacidade da sala
     IF total_tickets_sold >= room_capacity THEN
         UPDATE Sessions
         SET session_state = 'fechada'
-        WHERE session_id IN (SELECT session_id FROM Tickets);
+        WHERE session_id = :NEW.session_id;
     END IF;
 END;
 /
+
+
 
 
 --Trigger para tabela TSeats: Garantir número de linha positivo
